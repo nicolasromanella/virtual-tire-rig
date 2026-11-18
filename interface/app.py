@@ -35,10 +35,15 @@ DEAD_ZONE = 0.08                # [-]     controller dead zone
 STEP_DELTA = math.radians(0.5)  # [rad]   one step of delta: keys and -/+ buttons, test mode
 STEP_TORQUE = 0.01              # [-]     one step of T_D, T_B as a share of T_max
 TORQUE_RATE = 0.5               # [1/s]   test mode: change of T_D, T_B per second at full trigger, share of T_max
+KEY_RAMP = 0.75                 # [s]     drive mode: throttle or brake arrow held from rest reaches T_max in this time;
+                                #         the rate grows with the time held, so the value grows with its square
+KEY_RELEASE = 0.3               # [s]     drive mode: a released throttle or brake arrow returns from T_max to zero
 STEP_V, STEP_P = 1.0, 50.0      # [m/s], [N] one step of V and P with the -/+ buttons
 V_STEADY = 0.5                  # [m/s] below this |V_x| the steady transient slip is not drawn (display only)
 MAX_STEPS = 50                  # [-]  rig steps per frame at most (slow PCs fall behind real time)
 DEG = math.pi / 180.0
+SITE = "nicolasromanella.com"    # link at the left of the top bar
+SITE_URL = "https://nicolasromanella.com"
 
 
 class App:
@@ -54,15 +59,18 @@ class App:
         share = min(WINDOW_SHARE * info.current_w / WIDTH, WINDOW_SHARE * info.current_h / HEIGHT, 1.0) \
             if info.current_w > 0 else 1.0
         self.window = pygame.display.set_mode((int(WIDTH * share), int(HEIGHT * share)), pygame.RESIZABLE)
+        self.window_size = self.window.get_size()
         self.screen = pygame.Surface((WIDTH, HEIGHT))
         self.clock = pygame.time.Clock()
         self.wheel = Wheel()
         self.joystick = None
         self.gamepad = None                                      # same pad through the SDL game-controller mapping
         self.trigger_seen = [False, False]                       # throttle, brake
-        self.mode = Switch(["drive", "test"], "drive")
+        self.mode = Switch(["drive", "test"], "test")           # opens in test mode
         self.view = Switch(["Plots", "Transient", "Forces"], "Plots")
         self.reset_button = Button("Reset")
+        self.full_button = Button("Full screen")
+        self.full_hover = False
         self.zoom_button = Button("zoom")                         # side panel shows the contact zoom
         self.zoom = False
         self.values_button = Button("values")                     # numbers instead of symbols in the 3D views
@@ -80,6 +88,11 @@ class App:
         self.plots, self.transient, self.forces = PlotsView(), TransientView(), ForcesView()
         self.rig3d = Rig3D(pygame.Rect(14, 64, 612, 322))
         self.message = ""
+        self.site_rect, self.site_hover = pygame.Rect(0, 0, 0, 0), False
+        self.notice, self.noticed = False, False                   # no-controller notice, shown once per session
+        self.notice_ok = Button("OK")
+        self.held = {pygame.K_LEFT: 0.0, pygame.K_RIGHT: 0.0, pygame.K_UP: 0.0, pygame.K_DOWN: 0.0}   # [s] arrows held
+        self.key_throttle, self.key_brake = 0.0, 0.0              # [-] arrow throttle and brake, share of T_max
         self.orbiting, self.last_pos = None, (0, 0)              # 3D view being turned by the mouse
         self.reset()
 
@@ -89,6 +102,7 @@ class App:
         self.box_v.value = v
         self.q = free_rolling(v, self.wheel)
         self.delta, self.t_d, self.t_b = 0.0, 0.0, 0.0
+        self.key_throttle, self.key_brake = 0.0, 0.0
         self.t, self.belt, self.spin, self.rtf = 0.0, 0.0, 0.0, 0.0
         self.frame_dt = 0.0                                      # [s] duration of the last frame
         self.history = deque(maxlen=1000)                        # tau* and steady tau every step, last 1 s
@@ -129,6 +143,7 @@ class App:
                 self.click(self.scaled(event.pos))
             if event.type == pygame.MOUSEMOTION:
                 self.drag(self.scaled(event.pos))
+                self.hover_site(self.scaled(event.pos))
             if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
                 self.release()
             if event.type == pygame.MOUSEWHEEL:                      # zoom of the 3D view under the mouse
@@ -139,6 +154,9 @@ class App:
                 view = self.view_at(self.scaled(event.pos))
                 if view is not None:
                     view.reset_view()
+            if event.type == pygame.KEYDOWN and self.notice:
+                self.notice = False                              # any key closes the notice
+                continue
             if event.type == pygame.KEYDOWN:
                 if self.box_v.editing or self.box_p.editing:
                     self.type_into(event)
@@ -155,6 +173,12 @@ class App:
 
     # Returns nothing; applies a mouse click [drawing px] to the widget or 3D view under it.
     def click(self, pos):
+        if self.notice:                                          # any click closes the notice
+            self.notice = False
+            return
+        if self.site_rect.collidepoint(pos):
+            open_site()
+            return
         if any(s.press(pos) for s in self.sliders()):
             self.drag(pos)
             return
@@ -162,11 +186,15 @@ class App:
             return
         if self.reset_button.click(pos):
             self.reset()
+        elif self.full_button.click(pos):
+            self.toggle_fullscreen()
         elif self.zoom_button.click(pos):
             self.zoom = not self.zoom
         elif self.values_button.click(pos) or (self.view.selected == "Forces" and self.forces.values_button.click(pos)):
             self.show_values = not self.show_values
-        elif self.mode.click(pos) or self.view.click(pos):
+        elif self.mode.click(pos):
+            self.check_controller()
+        elif self.view.click(pos):
             pass
         elif any(b.click(pos) for pair in self.steps_vp for b in pair):
             (v_minus, v_plus), (_, p_plus) = self.steps_vp
@@ -189,6 +217,30 @@ class App:
             pass
         else:
             self.orbiting, self.last_pos = self.view_at(pos), pos
+
+    # Returns nothing; in drive mode without a controller, shows once per session the notice that suggests one.
+    def check_controller(self):
+        if self.mode.selected == "drive" and not self.noticed and self.joystick is None and self.gamepad is None:
+            self.notice = self.noticed = True
+
+    # Returns nothing; the site link turns orange and the cursor becomes a hand while the mouse is on it.
+    def hover_site(self, pos):
+        on = self.site_rect.collidepoint(pos)
+        self.full_hover = self.full_button.rect.collidepoint(pos)
+        if on != self.site_hover:
+            self.site_hover = on
+            try:
+                pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND if on else pygame.SYSTEM_CURSOR_ARROW)
+            except Exception:
+                pass
+
+    # Returns nothing; switches the window between full screen and its normal size.
+    def toggle_fullscreen(self):
+        if self.window.get_flags() & pygame.FULLSCREEN:
+            self.window = pygame.display.set_mode(self.window_size, pygame.RESIZABLE)
+        else:
+            self.window_size = self.window.get_size()
+            self.window = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
 
     # Returns the 3D view under a point (rig or free-body diagram), or None.
     def view_at(self, pos):
@@ -249,6 +301,7 @@ class App:
         lower = bool(event.mod & pygame.KMOD_SHIFT)
         if event.key == pygame.K_TAB:
             self.mode.selected = "test" if self.mode.selected == "drive" else "drive"
+            self.check_controller()
         elif event.key == pygame.K_r:
             self.reset()
         elif event.key in (pygame.K_1, pygame.K_2, pygame.K_3):
@@ -309,16 +362,22 @@ class App:
         pad = self.controller()
         if self.mode.selected == "drive":
             keys = pygame.key.get_pressed()
+            for k in self.held:                                     # time each arrow has been held
+                self.held[k] = self.held[k] + dt if keys[k] else 0.0
+            ramp = lambda k: 2.0 * self.held[k] / KEY_RAMP ** 2     # [1/s] rate of an arrow held for held[k]
             arrows = (1.0 if keys[pygame.K_LEFT] else 0.0) - (1.0 if keys[pygame.K_RIGHT] else 0.0)
-            throttle = 1.0 if keys[pygame.K_UP] else 0.0
-            brake = 1.0 if keys[pygame.K_DOWN] else 0.0
             if pad is not None and arrows == 0.0:
                 self.delta = pad[0] * STEER_MAX
-            elif arrows != 0.0:
+            elif arrows != 0.0:                                     # steer at STEER_RATE, limited to STEER_MAX
                 self.delta = min(max(self.delta + arrows * STEER_RATE * dt, -STEER_MAX), STEER_MAX)
-            else:                                                   # arrows released: back to zero at the same rate
+            else:                                                   # arrows released: back to zero at STEER_RATE
                 step = STEER_RATE * dt
                 self.delta = 0.0 if abs(self.delta) <= step else self.delta - math.copysign(step, self.delta)
+            for name, k in (("key_throttle", pygame.K_UP), ("key_brake", pygame.K_DOWN)):
+                v = getattr(self, name)
+                v = min(v + ramp(k) * dt, 1.0) if keys[k] else max(v - dt / KEY_RELEASE, 0.0)
+                setattr(self, name, v)
+            throttle, brake = self.key_throttle, self.key_brake
             if pad is not None:
                 throttle, brake = max(throttle, pad[1]), max(brake, pad[2])
             self.t_d, self.t_b = throttle * t_max, brake * t_max
@@ -370,6 +429,11 @@ class App:
         d.panel(s, bar)
         y = bar.y + 13
         x = bar.x + 12
+        colour = d.BRAND if self.site_hover else d.TEXT              # a button: outlined, orange on hover
+        self.site_rect = pygame.Rect(x, bar.y + 7, d.label_width(SITE, 13) + 22, 25)
+        pygame.draw.rect(s, d.BRAND if self.site_hover else d.AXIS, self.site_rect, 1, border_radius=4)
+        d.label(s, SITE, self.site_rect.center, colour, 13, "c")
+        x = self.site_rect.right + 28
         x = self.mode.draw(s, (x, bar.y + 7)).right + 18
         if not self.slide_v.dragging:
             self.slide_v.value = self.conditions.v
@@ -383,13 +447,15 @@ class App:
         x = d.label(s, f"{self.out.f_z:.0f} N", (r.right, y), d.TEXT, 13).right + 18
         if self.message:
             d.label(s, self.message, (x, y), d.WARNING, 13)
-        # fixed slots, right to left: Reset, RTF, t, view switch (nothing moves when the numbers change)
-        reset_x = bar.right - 12 - d.label_width("Reset", 13) - 22
+        # fixed slots, right to left: Full screen, Reset, RTF, t, view switch (nothing moves when the numbers change)
+        full_x = bar.right - 12 - d.label_width("Full screen", 13) - 22
+        self.full_button.draw(s, (full_x, bar.y + 7))
+        reset_x = full_x - 8 - d.label_width("Reset", 13) - 22
         self.reset_button.draw(s, (reset_x, bar.y + 7))
         rtf_x = reset_x - 16 - d.label_width("RTF 0.000", 13)
         r = d.label(s, "RTF ", (rtf_x, y), d.DIM, 13)
         d.label(s, f"{self.rtf:.3f}", (r.right, y), d.TEXT, 13)
-        t_x = rtf_x - 18 - d.label_width("t 00000.00 s", 13)
+        t_x = rtf_x - 12 - d.label_width("t 0000.00 s", 13)
         r = d.label(s, "t ", (t_x, y), d.DIM, 13)
         d.label(s, f"{self.t:.2f} s", (r.right, y), d.TEXT, 13)
         self.view.draw(s, (t_x - 18 - self.view.width(), bar.y + 7))
@@ -420,9 +486,23 @@ class App:
         hint = "Tab mode · R reset · arrows: steer, ↑ throttle, ↓ brake" if not test \
             else "Tab mode · R reset · ←→ δ 0.5° · ↑ T_D · ↓ T_B 1 % (Shift lowers) · −/+ · sliders"
         d.label(s, hint, (rect.x + 12, rect.bottom - 22), (95, 100, 110), 12)
-        if self.view.selected == "Plots":                        # one key for the peak rings of every plot
-            r = d.label(s, "peak", (rect.right - 12, rect.bottom - 22), (95, 100, 110), 12, "tr")
-            pygame.draw.circle(s, d.WARNING, (r.x - 10, r.centery), 5, 2)
+        d.label(s, "© 2026 Nicolas Romanella", (rect.right - 12, rect.bottom - 22), d.TEXT, 12, "tr")
+
+    # Draws the controller notice over the window: dimmed background, message, OK.
+    def draw_notice(self, s):
+        shade = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        shade.fill((0, 0, 0, 150))
+        s.blit(shade, (0, 0))
+        box = pygame.Rect(0, 0, 600, 200)
+        box.center = (WIDTH // 2, HEIGHT // 2)
+        d.panel(s, box)
+        d.label(s, "Controller recommended", (box.x + 28, box.y + 26), d.BRAND, 18)
+        lines = ("Drive mode works best with a game controller (Xbox, PlayStation or similar).",
+                 "If one is connected, press any of its buttons.",
+                 "The arrow keys work too: \u2190 \u2192 steer, \u2191 throttle, \u2193 brake.")
+        for i, line in enumerate(lines):
+            d.label(s, line, (box.x + 28, box.y + 66 + 22 * i), d.TEXT if i < 2 else d.DIM, 14)
+        self.notice_ok.draw(s, (box.right - 28 - d.label_width("OK", 13) - 22, box.bottom - 46))
 
     # Draws the state of the wheel in the corner of the 3D view.
     def readout(self, s, rect):
@@ -472,6 +552,8 @@ class App:
         else:
             self.forces.draw(s, right, self.out, self.out.wheel.t_net, self.wheel.m_w * G, self.wheel.tyre.f_z0,
                              torque_limit(self.conditions, self.wheel), self.show_values)
+        if self.notice:
+            self.draw_notice(s)
         size = self.window.get_size()
         if size == (WIDTH, HEIGHT):
             self.window.blit(s, (0, 0))
@@ -490,3 +572,13 @@ class App:
             self.advance(frame_dt)
             self.frame()
         pygame.quit()
+
+
+# Returns nothing; opens nicolasromanella.com in a new browser tab (web build) or in the default browser.
+def open_site():
+    try:
+        import platform as web                                   # pygbag replaces platform with the browser bridge
+        web.window.open(SITE_URL, "_blank")
+    except Exception:
+        import webbrowser
+        webbrowser.open(SITE_URL)
