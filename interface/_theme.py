@@ -1,7 +1,7 @@
 # =============================================================================
 # THEME (extra, not part of the rig)
-# Hidden: three clicks on Reset within 1.5 s turn every colour towards pink,
-# three more turn it back. main.py loads it only if this file exists; nothing
+# Hidden: six clicks on Reset within 3 s turn every colour towards pink,
+# six more turn it back. main.py loads it only if this file exists; nothing
 # else in rig/, interface/ or tests/ knows about it. Delete this file and it is gone.
 # =============================================================================
 
@@ -14,7 +14,7 @@ from interface.app import App
 
 MODULES = (draw, views, plots, widgets, app_module)
 STRENGTH = 0.5                  # [-] share of pink mixed into every colour
-CLICKS, WINDOW = 3, 1.5         # three clicks on Reset within 1.5 s
+CLICKS, WINDOW = 6, 3.0         # six clicks on Reset within 3 s
 
 
 # Returns True if value looks like an RGB colour.

@@ -29,7 +29,8 @@ from rig.wheel import G, Wheel, free_rolling_radius, loaded_radius
 WIDTH, HEIGHT = 1600, 900       # [px] drawing size; the window scales it to fit
 WINDOW_SHARE = 0.85             # [-]  initial window size as a share of the screen
 DT = 1e-3                       # [s]  rig time step (report 7.2)
-STEER_RATE = math.radians(60)   # [rad/s] steer rate of the arrow keys in drive mode (report 7.3)
+STEER_RATE = math.radians(60)   # [rad/s] steer rate of the stick in test mode (report 7.3)
+STEER_BACK = 0.6                # [s]     drive mode: a released steer arrow returns from full lock to zero in this time
 STEER_MAX = math.radians(20)    # [rad]   steer limit in drive mode, full stick (design choice)
 DEAD_ZONE = 0.08                # [-]     controller dead zone
 STEP_DELTA = math.radians(0.5)  # [rad]   one step of delta: keys and -/+ buttons, test mode
@@ -38,7 +39,7 @@ TORQUE_RATE = 0.5               # [1/s]   test mode: change of T_D, T_B per seco
 KEY_RAMP = 0.75                 # [s]     drive mode: throttle or brake arrow held from rest reaches T_max in this time;
                                 #         the rate grows with the time held, so the value grows with its square
 STEER_RAMP = 0.5                # [s]     drive mode: a steer arrow held from rest reaches full lock in this time,
-                                #         growing with the square of the time held; released, back at STEER_RATE
+                                #         growing with the square of the time held; released, back in STEER_BACK
 KEY_RELEASE = 0.3               # [s]     drive mode: a released throttle or brake arrow returns from T_max to zero
 STEP_V, STEP_P = 1.0, 50.0      # [m/s], [N] one step of V and P with the -/+ buttons
 V_STEADY = 0.5                  # [m/s] below this |V_x| the steady transient slip is not drawn (display only)
@@ -393,8 +394,8 @@ class App:
                 held = self.held[pygame.K_LEFT if arrows > 0 else pygame.K_RIGHT]
                 rate = 2.0 * held / STEER_RAMP ** 2 * STEER_MAX
                 self.delta = min(max(self.delta + arrows * rate * dt, -STEER_MAX), STEER_MAX)
-            else:                                                   # arrows released: back to zero at STEER_RATE
-                step = STEER_RATE * dt
+            else:                                                   # arrows released: back to zero in STEER_BACK
+                step = STEER_MAX / STEER_BACK * dt
                 self.delta = 0.0 if abs(self.delta) <= step else self.delta - math.copysign(step, self.delta)
             for name, k in (("key_throttle", pygame.K_UP), ("key_brake", pygame.K_DOWN)):
                 v = getattr(self, name)
@@ -546,7 +547,8 @@ class App:
         for i, (name, value) in enumerate(lines):
             y = rect.y + 10 + 19 * (i + 1) + 4
             d.label(s, name, (rect.x + 12, y), d.DIM, 13)
-            d.label(s, value, (rect.x + 46, y), d.WARNING if name == "held" and o.nu == 0 else d.TEXT, 13)
+            x = rect.x + (46 if name == "held" else 30)            # symbols are short: their values sit closer
+            d.label(s, value, (x, y), d.WARNING if name == "held" and o.nu == 0 else d.TEXT, 13)
 
     # Draws one frame of the whole window.
     def frame(self):
