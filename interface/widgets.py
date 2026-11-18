@@ -56,8 +56,8 @@ class Switch:
 
 class Button:
     # Returns nothing; rect is set at the first draw.
-    def __init__(self, text: str, size: int = 13):
-        self.text, self.size, self.rect = text, size, pygame.Rect(0, 0, 0, 0)
+    def __init__(self, text: str, size: int = 13, outline: bool = True):
+        self.text, self.size, self.rect, self.outline = text, size, pygame.Rect(0, 0, 0, 0), outline
 
     # Draws the button at pos, filled when active, height [px] by default from the text size; returns its rect.
     def draw(self, surface, pos, active: bool = False, height: int = 0) -> pygame.Rect:
@@ -65,7 +65,8 @@ class Button:
         self.rect = pygame.Rect(pos[0], pos[1], w, height or self.size + 12)
         if active:
             pygame.draw.rect(surface, d.FIELD, self.rect, border_radius=4)
-        pygame.draw.rect(surface, d.TEXT if active else d.AXIS, self.rect, 1, border_radius=4)
+        if self.outline or active:
+            pygame.draw.rect(surface, d.TEXT if active else d.AXIS, self.rect, 1, border_radius=4)
         d.label(surface, self.text, self.rect.center, d.TEXT, self.size, "c")
         return self.rect
 

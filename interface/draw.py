@@ -35,6 +35,7 @@ CARCASS = (215, 180, 140)     # carcass: spring and damper of the transient tyre
 PATCH = MOMENT                # contact patch in the side, top and zoom views: the road, as its moments
 WARNING = (255, 95, 80)       # limits and alerts: peak, held wheel, red mark, input error
 BRAND = (255, 166, 43)        # site link on hover, controller notice: the orange-yellow of nicolasromanella.com
+PAD_ON = (80, 200, 120)       # controller detected (green dot)
 # Plots: one colour per axis, x as the forces, y red; the main curve blue.
 F_X = FORCE                   # x quantities in the plots (sigma_x, tau*_x)
 F_Y = (240, 85, 75)           # y quantities in the plots (tau*_y, M_z curves)

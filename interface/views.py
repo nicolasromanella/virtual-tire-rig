@@ -102,6 +102,7 @@ class Projection:
         self.cy = rect.centery + self.k * 0.5 * (max(ys) + min(ys))
         self.centre = _mul(1.0 / len(corners), _add(*corners))   # box centre stays at the same screen point
         self.anchor = self.p(self.centre)
+        self.anchor_home = self.anchor
         self.az, self.el = az, el
         self.k_fit = self.k                                       # [px/unit] fitted scale, zoom 1
 
@@ -121,9 +122,15 @@ class Projection:
         self.k = min(max(self.k * factor, ZOOM_RANGE[0] * self.k_fit), ZOOM_RANGE[1] * self.k_fit)
         self.look(self.az, self.el)
 
-    # Returns nothing; back to the default camera and scale of this view.
+    # Returns nothing; moves the view in the screen plane by a mouse drag [px] (wheel button held).
+    def pan(self, dx: float, dy: float):
+        self.anchor = (self.anchor[0] + dx, self.anchor[1] + dy)
+        self.look(self.az, self.el)
+
+    # Returns nothing; back to the default camera, scale and position of this view.
     def reset_view(self):
         self.k = self.k_fit
+        self.anchor = self.anchor_home
         self.look(*self.home)
 
     # Returns the screen point [px] of a 3D point [drawing units].

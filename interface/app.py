@@ -37,6 +37,8 @@ STEP_TORQUE = 0.01              # [-]     one step of T_D, T_B as a share of T_m
 TORQUE_RATE = 0.5               # [1/s]   test mode: change of T_D, T_B per second at full trigger, share of T_max
 KEY_RAMP = 0.75                 # [s]     drive mode: throttle or brake arrow held from rest reaches T_max in this time;
                                 #         the rate grows with the time held, so the value grows with its square
+STEER_RAMP = 0.5                # [s]     drive mode: a steer arrow held from rest reaches full lock in this time,
+                                #         growing with the square of the time held; released, back at STEER_RATE
 KEY_RELEASE = 0.3               # [s]     drive mode: a released throttle or brake arrow returns from T_max to zero
 STEP_V, STEP_P = 1.0, 50.0      # [m/s], [N] one step of V and P with the -/+ buttons
 V_STEADY = 0.5                  # [m/s] below this |V_x| the steady transient slip is not drawn (display only)
@@ -76,7 +78,7 @@ class App:
         self.values_button = Button("values")                     # numbers instead of symbols in the 3D views
         self.show_values = False
         self.steps = [(Button("−", 12), Button("+", 12)) for _ in range(3)]   # delta, T_D, T_B
-        self.steps_vp = [(Button("−", 13), Button("+", 13)) for _ in range(2)]  # V, P, glued to their boxes
+        self.steps_vp = [(Button("−", 13, outline=False), Button("+", 13, outline=False)) for _ in range(2)]  # V, P, beside their boxes
         self.box_v = NumberBox("V", "m/s", V_RESET, 1, 5)
         self.box_p = NumberBox("P", "N", Conditions().p, 0, 5)
         p_lo, p_hi = load_limits(self.wheel)
@@ -94,6 +96,7 @@ class App:
         self.held = {pygame.K_LEFT: 0.0, pygame.K_RIGHT: 0.0, pygame.K_UP: 0.0, pygame.K_DOWN: 0.0}   # [s] arrows held
         self.key_throttle, self.key_brake = 0.0, 0.0              # [-] arrow throttle and brake, share of T_max
         self.orbiting, self.last_pos = None, (0, 0)              # 3D view being turned by the mouse
+        self.panning = None                                      # 3D view being moved (wheel button held)
         self.reset()
 
     # Returns nothing; free rolling at V_RESET, delta = 0, no torque (report 7.3).
@@ -146,6 +149,11 @@ class App:
                 self.hover_site(self.scaled(event.pos))
             if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
                 self.release()
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 2:   # wheel button: move the 3D view
+                pos = self.scaled(event.pos)
+                self.panning, self.last_pos = self.view_at(pos), pos
+            if event.type == pygame.MOUSEBUTTONUP and event.button == 2:
+                self.panning = None
             if event.type == pygame.MOUSEWHEEL:                      # zoom of the 3D view under the mouse
                 view = self.view_at(self.scaled(pygame.mouse.get_pos()))
                 if view is not None:
@@ -218,6 +226,15 @@ class App:
         else:
             self.orbiting, self.last_pos = self.view_at(pos), pos
 
+    # Returns the name of the game controller the rig reads, "" if there is none.
+    def controller_name(self) -> str:
+        if self.controller() is None:
+            return ""
+        try:
+            return (self.gamepad.name if self.gamepad is not None else self.joystick.get_name()) or "game controller"
+        except Exception:
+            return "game controller"
+
     # Returns nothing; in drive mode without a controller, shows once per session the notice that suggests one.
     def check_controller(self):
         if self.mode.selected == "drive" and not self.noticed and self.joystick is None and self.gamepad is None:
@@ -253,6 +270,10 @@ class App:
 
     # Returns nothing; applies the slider being dragged.
     def drag(self, pos):
+        if self.panning is not None:
+            self.panning.pan(pos[0] - self.last_pos[0], pos[1] - self.last_pos[1])
+            self.last_pos = pos
+            return
         if self.orbiting is not None:
             self.orbiting.orbit(pos[0] - self.last_pos[0], pos[1] - self.last_pos[1])
             self.last_pos = pos
@@ -368,8 +389,10 @@ class App:
             arrows = (1.0 if keys[pygame.K_LEFT] else 0.0) - (1.0 if keys[pygame.K_RIGHT] else 0.0)
             if pad is not None and arrows == 0.0:
                 self.delta = pad[0] * STEER_MAX
-            elif arrows != 0.0:                                     # steer at STEER_RATE, limited to STEER_MAX
-                self.delta = min(max(self.delta + arrows * STEER_RATE * dt, -STEER_MAX), STEER_MAX)
+            elif arrows != 0.0:                                     # faster the longer the arrow is held
+                held = self.held[pygame.K_LEFT if arrows > 0 else pygame.K_RIGHT]
+                rate = 2.0 * held / STEER_RAMP ** 2 * STEER_MAX
+                self.delta = min(max(self.delta + arrows * rate * dt, -STEER_MAX), STEER_MAX)
             else:                                                   # arrows released: back to zero at STEER_RATE
                 step = STEER_RATE * dt
                 self.delta = 0.0 if abs(self.delta) <= step else self.delta - math.copysign(step, self.delta)
@@ -441,8 +464,11 @@ class App:
             self.slide_p.value = self.conditions.p
         for box, slider, colour, (minus, plus) in ((self.box_v, self.slide_v, d.VELOCITY, self.steps_vp[0]),
                                                    (self.box_p, self.slide_p, d.LOAD, self.steps_vp[1])):
-            x = box.draw(s, (x, bar.y + 7), buttons=(minus, plus)).right + 14
-            x = slider.draw(s, pygame.Rect(x, bar.y + 13, 170, 14), colour).right + 26
+            start = x                                             # box and slider in one frame: one quantity
+            x = box.draw(s, (x + 10, bar.y + 7), buttons=(minus, plus)).right + 12
+            x = slider.draw(s, pygame.Rect(x, bar.y + 13, 150, 14), colour).right + 12
+            pygame.draw.rect(s, d.PANEL_EDGE, pygame.Rect(start, bar.y + 4, x - start, bar.h - 8), 1, border_radius=6)
+            x += 14
         r = d.label(s, "F_z ", (x, y), d.DIM, 13)
         x = d.label(s, f"{self.out.f_z:.0f} N", (r.right, y), d.TEXT, 13).right + 18
         if self.message:
@@ -452,10 +478,10 @@ class App:
         self.full_button.draw(s, (full_x, bar.y + 7))
         reset_x = full_x - 8 - d.label_width("Reset", 13) - 22
         self.reset_button.draw(s, (reset_x, bar.y + 7))
-        rtf_x = reset_x - 16 - d.label_width("RTF 0.000", 13)
+        rtf_x = reset_x - 30 - d.label_width("RTF 0.000", 13)
         r = d.label(s, "RTF ", (rtf_x, y), d.DIM, 13)
         d.label(s, f"{self.rtf:.3f}", (r.right, y), d.TEXT, 13)
-        t_x = rtf_x - 12 - d.label_width("t 0000.00 s", 13)
+        t_x = rtf_x - 6 - d.label_width("t 0000.00 s", 13)
         r = d.label(s, "t ", (t_x, y), d.DIM, 13)
         d.label(s, f"{self.t:.2f} s", (r.right, y), d.TEXT, 13)
         self.view.draw(s, (t_x - 18 - self.view.width(), bar.y + 7))
@@ -483,8 +509,8 @@ class App:
                 minus, plus = self.steps[i]
                 plus.draw(s, (minus.draw(s, (x + 34, y - 4)).right + 4, y - 4))
             slider.draw(s, pygame.Rect(x, y + 26, w, 14), colour)
-        hint = "Tab mode · R reset · arrows: steer, ↑ throttle, ↓ brake" if not test \
-            else "Tab mode · R reset · ←→ δ 0.5° · ↑ T_D · ↓ T_B 1 % (Shift lowers) · −/+ · sliders"
+        hint = "R reset · ← → steer · ↑ throttle · ↓ brake" if not test \
+            else "R reset · ← → δ 0.5° · ↑ T_D · ↓ T_B 1 % (Shift lowers) · −/+ · sliders"
         d.label(s, hint, (rect.x + 12, rect.bottom - 22), (95, 100, 110), 12)
         d.label(s, "© 2026 Nicolas Romanella", (rect.right - 12, rect.bottom - 22), d.TEXT, 12, "tr")
 
@@ -513,8 +539,12 @@ class App:
                  ("s", "–" if math.isnan(o.s_x) else f"{o.s_x:+.3f}, {o.s_y:+.3f}"),
                  ("σ", "–" if math.isnan(o.sigma_x) else f"{o.sigma_x:+.3f}, {o.sigma_y:+.3f}"),
                  ("held", "yes (Ω = 0, friction holds)" if o.nu == 0 else "no"))
+        y = rect.y + 10                                           # first line, live: is a game controller seen?
+        name = self.controller_name()
+        pygame.draw.circle(s, d.PAD_ON if name else d.WARNING, (rect.x + 17, y + 8), 5)
+        d.label(s, "controller detected" if name else "no controller detected", (rect.x + 28, y), d.TEXT if name else d.DIM, 13)
         for i, (name, value) in enumerate(lines):
-            y = rect.y + 10 + 19 * i
+            y = rect.y + 10 + 19 * (i + 1) + 4
             d.label(s, name, (rect.x + 12, y), d.DIM, 13)
             d.label(s, value, (rect.x + 46, y), d.WARNING if name == "held" and o.nu == 0 else d.TEXT, 13)
 
