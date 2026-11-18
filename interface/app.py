@@ -73,7 +73,6 @@ class App:
         self.view = Switch(["Plots", "Transient", "Forces"], "Plots")
         self.reset_button = Button("Reset")
         self.full_button = Button("Full screen")
-        self.full_hover = False
         self.zoom_button = Button("zoom")                         # side panel shows the contact zoom
         self.zoom = False
         self.values_button = Button("values")                     # numbers instead of symbols in the 3D views
@@ -91,8 +90,10 @@ class App:
         self.plots, self.transient, self.forces = PlotsView(), TransientView(), ForcesView()
         self.rig3d = Rig3D(pygame.Rect(14, 64, 612, 322))
         self.message = ""
-        self.site_rect, self.site_hover = pygame.Rect(0, 0, 0, 0), False
+        self.site_rect = pygame.Rect(0, 0, 0, 0)
+        self.hover = ""                                          # button under the mouse: "site", "full" or ""
         self.notice, self.noticed = False, False                   # no-controller notice, shown once per session
+        self.pad_used = False                                    # the controller counts once it has been used
         self.notice_ok = Button("OK")
         self.held = {pygame.K_LEFT: 0.0, pygame.K_RIGHT: 0.0, pygame.K_UP: 0.0, pygame.K_DOWN: 0.0}   # [s] arrows held
         self.key_throttle, self.key_brake = 0.0, 0.0              # [-] arrow throttle and brake, share of T_max
@@ -147,7 +148,7 @@ class App:
                 self.click(self.scaled(event.pos))
             if event.type == pygame.MOUSEMOTION:
                 self.drag(self.scaled(event.pos))
-                self.hover_site(self.scaled(event.pos))
+                self.hover_at(self.scaled(event.pos))
             if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
                 self.release()
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 2:   # wheel button: move the 3D view
@@ -164,7 +165,8 @@ class App:
                 if view is not None:
                     view.reset_view()
             if event.type == pygame.KEYDOWN and self.notice:
-                self.notice = False                              # any key closes the notice
+                if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER, pygame.K_ESCAPE, pygame.K_SPACE):
+                    self.notice = False                          # Enter, Esc or Space close the notice
                 continue
             if event.type == pygame.KEYDOWN:
                 if self.box_v.editing or self.box_p.editing:
@@ -182,8 +184,9 @@ class App:
 
     # Returns nothing; applies a mouse click [drawing px] to the widget or 3D view under it.
     def click(self, pos):
-        if self.notice:                                          # any click closes the notice
-            self.notice = False
+        if self.notice:                                          # only OK closes the notice
+            if self.notice_ok.click(pos):
+                self.notice = False
             return
         if self.site_rect.collidepoint(pos):
             open_site()
@@ -227,28 +230,19 @@ class App:
         else:
             self.orbiting, self.last_pos = self.view_at(pos), pos
 
-    # Returns the name of the game controller the rig reads, "" if there is none.
-    def controller_name(self) -> str:
-        if self.controller() is None:
-            return ""
-        try:
-            return (self.gamepad.name if self.gamepad is not None else self.joystick.get_name()) or "game controller"
-        except Exception:
-            return "game controller"
-
     # Returns nothing; in drive mode without a controller, shows once per session the notice that suggests one.
     def check_controller(self):
-        if self.mode.selected == "drive" and not self.noticed and self.joystick is None and self.gamepad is None:
+        if self.mode.selected == "drive" and not self.noticed and self.controller() is None:
             self.notice = self.noticed = True
 
-    # Returns nothing; the site link turns orange and the cursor becomes a hand while the mouse is on it.
-    def hover_site(self, pos):
-        on = self.site_rect.collidepoint(pos)
-        self.full_hover = self.full_button.rect.collidepoint(pos)
-        if on != self.site_hover:
-            self.site_hover = on
+    # Returns nothing; remembers which link-like button is under the mouse (the site button turns orange,
+    # the cursor becomes a hand).
+    def hover_at(self, pos):
+        new = "site" if self.site_rect.collidepoint(pos) else "full" if self.full_button.rect.collidepoint(pos) else ""
+        if new != self.hover:
+            self.hover = new
             try:
-                pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND if on else pygame.SYSTEM_CURSOR_ARROW)
+                pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND if new else pygame.SYSTEM_CURSOR_ARROW)
             except Exception:
                 pass
 
@@ -351,7 +345,7 @@ class App:
     # Returns the controller as (stick, throttle, brake, R1, L1): stick -1..1 (left positive), triggers 0..1,
     # bumpers pressed or not; None if absent. A pad known to SDL is read by name (any brand); an unknown
     # joystick falls back to raw axes 4, 5 and buttons 4, 5 (Xbox layout).
-    def controller(self):
+    def read_pad(self):
         if self.gamepad is not None:                             # Xbox, PlayStation, ...: named buttons
             g, full = self.gamepad, 32767.0
             stick = -g.get_axis(pygame.CONTROLLER_AXIS_LEFTX) / full
@@ -374,6 +368,19 @@ class App:
                 triggers[i] = value if value > DEAD_ZONE else 0.0
         bumpers = [self.joystick.get_numbuttons() > b and self.joystick.get_button(b) == 1 for b in (5, 4)]   # RB, LB
         return stick, triggers[0], triggers[1], bumpers[0], bumpers[1]
+
+    # Returns the controller as read_pad does, but only once it has been used since it was seen:
+    # stick, trigger or bumper moved. An idle pad (or one the system still lists when it is off)
+    # sends nothing and the window says "no controller detected".
+    def controller(self):
+        raw = self.read_pad()
+        if raw is None:
+            self.pad_used = False
+            return None
+        if not self.pad_used:
+            stick, throttle, brake, r1, l1 = raw
+            self.pad_used = abs(stick) > 0.3 or throttle > 0.3 or brake > 0.3 or r1 or l1
+        return raw if self.pad_used else None
 
     # Returns nothing. Drive: the stick position is the steer angle, triggers the torques, released = zero;
     # arrows steer at a rate. Test: the controller moves the values at a rate and they stay when released:
@@ -453,9 +460,9 @@ class App:
         d.panel(s, bar)
         y = bar.y + 13
         x = bar.x + 12
-        colour = d.BRAND if self.site_hover else d.TEXT              # a button: outlined, orange on hover
+        colour = d.BRAND if self.hover == "site" else d.TEXT        # a button: outlined, orange on hover
         self.site_rect = pygame.Rect(x, bar.y + 7, d.label_width(SITE, 13) + 22, 25)
-        pygame.draw.rect(s, d.BRAND if self.site_hover else d.AXIS, self.site_rect, 1, border_radius=4)
+        pygame.draw.rect(s, d.BRAND if self.hover == "site" else d.AXIS, self.site_rect, 1, border_radius=4)
         d.label(s, SITE, self.site_rect.center, colour, 13, "c")
         x = self.site_rect.right + 28
         x = self.mode.draw(s, (x, bar.y + 7)).right + 18
@@ -525,7 +532,7 @@ class App:
         d.panel(s, box)
         d.label(s, "Controller recommended", (box.x + 28, box.y + 26), d.BRAND, 18)
         lines = ("Drive mode works best with a game controller (Xbox, PlayStation or similar).",
-                 "If one is connected, press any of its buttons.",
+                 "If one is connected, move its stick or press a trigger.",
                  "The arrow keys work too: \u2190 \u2192 steer, \u2191 throttle, \u2193 brake.")
         for i, line in enumerate(lines):
             d.label(s, line, (box.x + 28, box.y + 66 + 22 * i), d.TEXT if i < 2 else d.DIM, 14)
@@ -541,9 +548,9 @@ class App:
                  ("σ", "–" if math.isnan(o.sigma_x) else f"{o.sigma_x:+.3f}, {o.sigma_y:+.3f}"),
                  ("held", "yes (Ω = 0, friction holds)" if o.nu == 0 else "no"))
         y = rect.y + 10                                           # first line, live: is a game controller seen?
-        name = self.controller_name()
-        pygame.draw.circle(s, d.PAD_ON if name else d.WARNING, (rect.x + 17, y + 8), 5)
-        d.label(s, "controller detected" if name else "no controller detected", (rect.x + 28, y), d.TEXT if name else d.DIM, 13)
+        on = self.controller() is not None
+        pygame.draw.circle(s, d.PAD_ON if on else d.WARNING, (rect.x + 17, y + 8), 5)
+        d.label(s, "controller detected" if on else "no controller detected", (rect.x + 28, y), d.TEXT if on else d.DIM, 13)
         for i, (name, value) in enumerate(lines):
             y = rect.y + 10 + 19 * (i + 1) + 4
             d.label(s, name, (rect.x + 12, y), d.DIM, 13)
