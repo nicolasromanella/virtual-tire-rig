@@ -30,7 +30,7 @@ WIDTH, HEIGHT = 1600, 900       # [px] drawing size; the window scales it to fit
 WINDOW_SHARE = 0.85             # [-]  initial window size as a share of the screen
 DT = 1e-3                       # [s]  rig time step (report 7.2)
 STEER_RATE = math.radians(60)   # [rad/s] steer rate of the stick in test mode (report 7.3)
-STEER_BACK = 0.6                # [s]     drive mode: a released steer arrow returns from full lock to zero in this time
+STEER_BACK = 0.4                # [s]     drive mode: a released steer arrow returns from full lock to zero in this time
 STEER_MAX = math.radians(20)    # [rad]   steer limit in drive mode, full stick (design choice)
 DEAD_ZONE = 0.08                # [-]     controller dead zone
 STEP_DELTA = math.radians(0.5)  # [rad]   one step of delta: keys and -/+ buttons, test mode
@@ -149,6 +149,7 @@ class App:
             if event.type == pygame.MOUSEMOTION:
                 self.drag(self.scaled(event.pos))
                 self.hover_at(self.scaled(event.pos))
+                d.MOUSE = self.scaled(event.pos)                 # widgets light up under the mouse
             if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
                 self.release()
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 2:   # wheel button: move the 3D view
@@ -235,14 +236,14 @@ class App:
         if self.mode.selected == "drive" and not self.noticed and self.controller() is None:
             self.notice = self.noticed = True
 
-    # Returns nothing; remembers which link-like button is under the mouse (the site button turns orange,
-    # the cursor becomes a hand).
+    # Returns nothing; remembers which link-like button is under the mouse (the site button turns orange
+    # and shows a hand; every other button only lights up).
     def hover_at(self, pos):
         new = "site" if self.site_rect.collidepoint(pos) else "full" if self.full_button.rect.collidepoint(pos) else ""
         if new != self.hover:
             self.hover = new
             try:
-                pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND if new else pygame.SYSTEM_CURSOR_ARROW)
+                pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND if new == "site" else pygame.SYSTEM_CURSOR_ARROW)
             except Exception:
                 pass
 

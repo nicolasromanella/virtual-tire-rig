@@ -32,9 +32,10 @@ class Switch:
         for option in self.options:
             w = d.label_width(option, self.size) + 20
             r = pygame.Rect(x, y, w, h)
-            if option == self.selected:
-                pygame.draw.rect(surface, d.PANEL_EDGE, r, border_radius=4)
-            d.label(surface, option, r.center, d.TEXT if option == self.selected else d.DIM, self.size, "c")
+            hover = option != self.selected and r.collidepoint(d.MOUSE)    # another option under the mouse
+            if option == self.selected or hover:
+                pygame.draw.rect(surface, d.PANEL_EDGE if option == self.selected else d.HOVER, r, border_radius=4)
+            d.label(surface, option, r.center, d.TEXT if option == self.selected or hover else d.DIM, self.size, "c")
             self.rects.append((r, option))
             x += w
         outline = pygame.Rect(pos[0], y, x - pos[0], h)
@@ -63,10 +64,11 @@ class Button:
     def draw(self, surface, pos, active: bool = False, height: int = 0) -> pygame.Rect:
         w = d.label_width(self.text, self.size) + 22
         self.rect = pygame.Rect(pos[0], pos[1], w, height or self.size + 12)
-        if active:
-            pygame.draw.rect(surface, d.FIELD, self.rect, border_radius=4)
-        if self.outline or active:
-            pygame.draw.rect(surface, d.TEXT if active else d.AXIS, self.rect, 1, border_radius=4)
+        hover = self.rect.collidepoint(d.MOUSE)                  # lights up under the mouse
+        if active or hover:
+            pygame.draw.rect(surface, d.HOVER if hover else d.FIELD, self.rect, border_radius=4)
+        if self.outline or active or hover:
+            pygame.draw.rect(surface, d.TEXT if active or hover else d.AXIS, self.rect, 1, border_radius=4)
         d.label(surface, self.text, self.rect.center, d.TEXT, self.size, "c")
         return self.rect
 

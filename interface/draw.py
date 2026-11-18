@@ -36,6 +36,8 @@ PATCH = MOMENT                # contact patch in the side, top and zoom views: t
 WARNING = (255, 95, 80)       # limits and alerts: peak, held wheel, red mark, input error
 BRAND = (255, 166, 43)        # site link on hover, controller notice: the orange-yellow of nicolasromanella.com
 PAD_ON = (80, 200, 120)       # controller detected (green dot)
+HOVER = (52, 56, 64)          # fill of a button or switch option under the mouse
+MOUSE = (-1, -1)              # [drawing px] mouse position, set by the app; widgets light up under it
 # Plots: one colour per axis, x as the forces, y red; the main curve blue.
 F_X = FORCE                   # x quantities in the plots (sigma_x, tau*_x)
 F_Y = (240, 85, 75)           # y quantities in the plots (tau*_y, M_z curves)
