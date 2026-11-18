@@ -7,7 +7,7 @@ The belt imposes the road speed, the wheel can be steered through any angle,
 and drive and brake torques act on the rim, while forces, slips and tire
 characteristics update live.
 
-**Try it in your browser:** [nicolasromanella.com/apps/tire-rig](https://nicolasromanella.com/apps/tire-rig/)  
+**Try it in your browser:** [nicolasromanella.com/apps/virtual-tire-rig](https://nicolasromanella.com/apps/virtual-tire-rig/)  
 **Model and verification:** [Virtual_Tire_Characterization_Rig_v1.4.pdf](Virtual_Tire_Characterization_Rig_v1.4.pdf)
 
 ## Run locally
