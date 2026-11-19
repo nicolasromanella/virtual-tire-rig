@@ -240,12 +240,10 @@ class App:
     # and shows a hand; every other button only lights up).
     def hover_at(self, pos):
         new = "site" if self.site_rect.collidepoint(pos) else "full" if self.full_button.rect.collidepoint(pos) else ""
-        if not new and self.view.selected == "Forces" and any(r.inflate(8, 8).collidepoint(pos) for r, _ in self.forces.keys):
-            new = "key"                                               # colour key of the free-body diagram: clickable
         if new != self.hover:
             self.hover = new
             try:
-                pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND if new in ("site", "key") else pygame.SYSTEM_CURSOR_ARROW)
+                pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND if new == "site" else pygame.SYSTEM_CURSOR_ARROW)
             except Exception:
                 pass
 

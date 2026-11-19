@@ -491,7 +491,7 @@ class ForcesView:
     # Returns True if the click switched a colour-key group on or off, or opened or closed a power explanation.
     def click(self, point) -> bool:
         for r, name in self.keys:
-            if r.inflate(8, 8).collidepoint(point):
+            if r.collidepoint(point):
                 self.hidden ^= {name}
                 return True
         for r, name in self.toggles:
@@ -515,9 +515,13 @@ class ForcesView:
         self.keys = []
         for name, colour in (("road forces", d.FORCE), ("road moments", d.MOMENT), ("loads", d.LOAD),   # colour key:
                              ("frame reactions", d.REACTION), ("T_D", d.T_DRIVE), ("T_B", d.T_BRAKE)):  # a click hides or shows the group
-            r = d.label(surface, name, (x, fbd.bottom - 24), (70, 74, 82) if name in self.hidden else colour, 12)
+            r = pygame.Rect(x, fbd.bottom - 29, d.label_width(name, 12) + 14, 22)   # a button without outline:
+            if r.collidepoint(d.MOUSE):                                          # it lights up under the mouse, like -/+
+                pygame.draw.rect(surface, d.HOVER, r, border_radius=4)
+                pygame.draw.rect(surface, d.TEXT, r, 1, border_radius=4)
+            d.label(surface, name, r.center, (70, 74, 82) if name in self.hidden else colour, 12, "c")
             self.keys.append((r, name))
-            x = r.right + 14
+            x = r.right + 4
         x = fbd.right + 10
         w = out.wheel
         groups = (("road on tyre", (("F_x", w.f_x, "N"), ("M_y", w.m_y, "N m"), ("F_y", w.f_y, "N"), ("M_z", w.m_z, "N m"),
