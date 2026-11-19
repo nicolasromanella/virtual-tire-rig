@@ -56,7 +56,7 @@ class App:
             ctypes.windll.user32.SetProcessDPIAware()           # real pixels, no blurry OS scaling
         pygame.init()
         sdl_controller.init()
-        pygame.display.set_caption("Tyre rig")
+        pygame.display.set_caption("Virtual Tire Test Rig")
         pygame.key.set_repeat(300, 50)                           # held keys repeat in test mode
         info = pygame.display.Info()
         share = min(WINDOW_SHARE * info.current_w / WIDTH, WINDOW_SHARE * info.current_h / HEIGHT, 1.0) \
@@ -240,10 +240,12 @@ class App:
     # and shows a hand; every other button only lights up).
     def hover_at(self, pos):
         new = "site" if self.site_rect.collidepoint(pos) else "full" if self.full_button.rect.collidepoint(pos) else ""
+        if not new and self.view.selected == "Forces" and any(r.inflate(8, 8).collidepoint(pos) for r, _ in self.forces.keys):
+            new = "key"                                               # colour key of the free-body diagram: clickable
         if new != self.hover:
             self.hover = new
             try:
-                pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND if new == "site" else pygame.SYSTEM_CURSOR_ARROW)
+                pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_HAND if new in ("site", "key") else pygame.SYSTEM_CURSOR_ARROW)
             except Exception:
                 pass
 
@@ -519,7 +521,7 @@ class App:
                 plus.draw(s, (minus.draw(s, (x + 34, y - 4)).right + 4, y - 4))
             slider.draw(s, pygame.Rect(x, y + 26, w, 14), colour)
         hint = "R reset · ← → steer · ↑ throttle · ↓ brake" if not test \
-            else "R reset · ← → δ 0.5° · ↑ T_D · ↓ T_B 1 % (Shift lowers) · −/+ · sliders"
+            else "R reset · ← → δ 0.5° · ↑ T_D · ↓ T_B · −/+ · sliders"
         d.label(s, hint, (rect.x + 12, rect.bottom - 22), (95, 100, 110), 12)
         d.label(s, "© 2026 Nicolas Romanella", (rect.right - 12, rect.bottom - 22), d.TEXT, 12, "tr")
 
@@ -573,7 +575,7 @@ class App:
                         self.show_values)
         self.readout(s, pygame.Rect(10, 60, 620, 330))
         self.values_button.draw(s, (622 - d.label_width("values", 13) - 22, 68), self.show_values)
-        d.label(s, ORBIT_HINT, (622, 368), (95, 100, 110), 12, "tr")
+        d.label(s, "Virtual Tire Test Rig · v1.6", (622, 368), d.TEXT, 12, "tr")   # name and version, white like the copyright
         side = pygame.Rect(10, 400, 305, 390)
         if self.zoom:
             contact_zoom(s, side, self.out, k_spring, h, r_0, r_e, self.wheel.tyre.f_z0)

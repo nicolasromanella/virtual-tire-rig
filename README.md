@@ -1,4 +1,4 @@
-# Virtual Tire Characterization Rig
+# Virtual Tire Test Rig
 
 Version 1.6 · by [Nicolas Romanella](https://nicolasromanella.com)
 
@@ -8,7 +8,9 @@ and drive and brake torques act on the rim, while forces, slips and tire
 characteristics update live.
 
 **Try it in your browser:** [nicolasromanella.com/apps/virtual-tire-rig](https://nicolasromanella.com/apps/virtual-tire-rig/)  
-**Model and verification:** [Virtual_Tire_Characterization_Rig_v1.6.pdf](Virtual_Tire_Characterization_Rig_v1.6.pdf)
+**Model and verification:** [Virtual_Tire_Test_Rig_v1.6.pdf](Virtual_Tire_Test_Rig_v1.6.pdf)
+
+> **Demo version.** This repository is a public demo of the rig, frozen at version 1.6. Development continues privately: combined slip, camber, powertrain, ABS and traction control, and the integration into a full driving simulator.
 
 ## Run locally
 

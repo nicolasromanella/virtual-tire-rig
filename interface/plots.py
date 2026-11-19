@@ -484,10 +484,16 @@ class ForcesView:
         self.wheel3d = None
         self.open = set()           # power terms whose explanation is shown
         self.toggles = []           # (screen rect, name) of the arrows drawn in the last frame
+        self.hidden = set()         # colour-key groups switched off: not drawn in the free-body diagram
+        self.keys = []              # (screen rect, name) of the colour-key entries drawn in the last frame
         self.values_button = Button("values")   # numbers instead of symbols in the 3D drawing
 
-    # Returns True if the click opened or closed a power explanation.
+    # Returns True if the click switched a colour-key group on or off, or opened or closed a power explanation.
     def click(self, point) -> bool:
+        for r, name in self.keys:
+            if r.inflate(8, 8).collidepoint(point):
+                self.hidden ^= {name}
+                return True
         for r, name in self.toggles:
             if r.collidepoint(point):
                 self.open ^= {name}
@@ -504,11 +510,14 @@ class ForcesView:
         d.label(surface, "free-body diagram, wheel frame", (fbd.x + 12, fbd.y + 9), d.TEXT, 13)
         d.label(surface, ORBIT_HINT, (fbd.x + 12, fbd.y + 28), (95, 100, 110), 12)
         self.values_button.draw(surface, (fbd.right - 12 - d.label_width("values", 13) - 22, fbd.y + 6), values)
-        self.wheel3d.draw(surface, out, t_net, weight, f_z0, t_ref, 80.0, values)
+        self.wheel3d.draw(surface, out, t_net, weight, f_z0, t_ref, 80.0, values, self.hidden)
         x = fbd.x + 12
-        for name, colour in (("road forces", d.FORCE), ("road moments", d.MOMENT), ("loads", d.LOAD),   # colour key
-                             ("frame reactions", d.REACTION), ("T_D", d.T_DRIVE), ("T_B", d.T_BRAKE)):
-            x = d.label(surface, name, (x, fbd.bottom - 24), colour, 12).right + 14
+        self.keys = []
+        for name, colour in (("road forces", d.FORCE), ("road moments", d.MOMENT), ("loads", d.LOAD),   # colour key:
+                             ("frame reactions", d.REACTION), ("T_D", d.T_DRIVE), ("T_B", d.T_BRAKE)):  # a click hides or shows the group
+            r = d.label(surface, name, (x, fbd.bottom - 24), (70, 74, 82) if name in self.hidden else colour, 12)
+            self.keys.append((r, name))
+            x = r.right + 14
         x = fbd.right + 10
         w = out.wheel
         groups = (("road on tyre", (("F_x", w.f_x, "N"), ("M_y", w.m_y, "N m"), ("F_y", w.f_y, "N"), ("M_z", w.m_z, "N m"),
@@ -547,10 +556,10 @@ class ForcesView:
             bar = pygame.Rect(box.x + 12, py + 19, box.w - 24, 6)
             pygame.draw.rect(surface, d.FIELD, bar, border_radius=3)
             pygame.draw.rect(surface, colours[name], (bar.x, bar.y, bar.w * abs(p) / top, 6), border_radius=3)
-            py += 34
+            py += 38
             if opened:
-                pygame.draw.line(surface, colours[name], (box.x + 16, py - 4), (box.x + 16, py + 28), 2)
-                d.label(surface, formula, (box.x + 26, py - 6), d.TEXT, 14)
-                d.label(surface, meaning, (box.x + 26, py + 14), d.DIM, 12)
-                py += 42
+                pygame.draw.line(surface, colours[name], (box.x + 16, py - 4), (box.x + 16, py + 34), 2)
+                d.label(surface, formula, (box.x + 26, py - 4), d.TEXT, 14)
+                d.label(surface, meaning, (box.x + 26, py + 18), d.DIM, 12)
+                py += 50
         d.label(surface, "P_motor + P_belt = P_friction + P_tyre + P_kinetic", (box.x + 12, py + 4), d.DIM, 13)

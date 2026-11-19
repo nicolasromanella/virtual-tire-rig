@@ -1,5 +1,5 @@
 # =============================================================================
-# TYRE RIG
+# VIRTUAL TIRE TEST RIG
 # Starts the window of the virtual tyre test rig. Run: python main.py
 # =============================================================================
 

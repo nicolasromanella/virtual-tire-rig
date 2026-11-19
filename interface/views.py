@@ -307,8 +307,9 @@ class Wheel3D(Projection):
     # same scale and weight, the name (or value) past the tip on a dark tag, moments as arcs of the same
     # weight; values: numbers instead of symbols. References [N m] set the drawn span of the moments.
     def draw(self, surface, out, t_net: float, weight: float, f_z0: float, t_ref: float, m_ref: float,
-             values: bool = False):
+             values: bool = False, hidden=frozenset()):
         h = 0.95
+        show = lambda group: group not in hidden                          # colour-key groups switched off by a click
         ex, ey, ez = (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)
         o, hub = (0.0, 0.0, 0.0), (0.0, 0.0, h)
         clip = surface.get_clip()
@@ -346,30 +347,36 @@ class Wheel3D(Projection):
                         backed=True)
 
         # road on tyre at O
-        couple(d.MOMENT, o, ex, ey, 0.55, w.m_z, m_ref, "M_z", 0.3)
-        couple(d.MOMENT, o, ez, ex, 0.32, w.m_y, 0.02 * t_ref, "M_y", 1.9)
-        force(d.FORCE, o, _mul(w.f_x * k_f, ex), "F_x", w.f_x)
-        force(d.FORCE, o, _mul(w.f_y * k_f, ey), "F_y", w.f_y)
+        if show("road moments"):
+            couple(d.MOMENT, o, ex, ey, 0.55, w.m_z, m_ref, "M_z", 0.3)
+            couple(d.MOMENT, o, ez, ex, 0.32, w.m_y, 0.02 * t_ref, "M_y", 1.9)
+        if show("road forces"):
+            force(d.FORCE, o, _mul(w.f_x * k_f, ex), "F_x", w.f_x)
+            force(d.FORCE, o, _mul(w.f_y * k_f, ey), "F_y", w.f_y)
         f_z = _mul(out.f_z * k_v, ez)
-        if out.f_z * k_v * self.k >= 2.0:                               # head at O, from under the road
+        if show("road forces") and out.f_z * k_v * self.k >= 2.0:       # head at O, from under the road
             self.arrow(surface, d.FORCE, _mul(-1.0, f_z), f_z, 4)
             d.label(surface, f"{out.f_z:.0f} N" if values else "F_z", self.p(_add(_mul(-1.12, f_z), (0.12, 0, 0))),
                     d.FORCE, 14, "c", backed=True)
         # frame on wheel at H, from H outwards. R_hy and R_hz are slid along their lines of action, which pass
         # through H, so they leave the wheel; moments are free vectors and sit where they read best
-        couple(FRAME, _add(hub, (-1.35, 0, 0)), ey, ez, 0.35, out.m_hx, t_ref, "M_hx", 0.4)       # behind the tyre, on the x axis
-        couple(FRAME, _add(hub, (0, 0, 1.25)), ex, ey, 0.3, out.m_hz, m_ref, "M_hz", 2.0)
-        couple(d.T_DRIVE if t_net >= 0 else d.T_BRAKE, hub, ez, ex, 0.7, t_net, t_ref, "T = T_D − T_B", 0.4)
-        force(FRAME, hub, (out.r_hx * k_f, 0, 0), "R_hx", out.r_hx)                 # at H: its line passes through H
-        end = _mul(math.copysign(0.45, out.r_hy), ey)                 # the axle end it points away from
-        force(FRAME, _add(hub, end), (0, out.r_hy * k_f, 0), "R_hy", out.r_hy)
-        force(FRAME, _add(hub, (0, 0, 1.1 - out.r_hz * k_v)), (0, 0, out.r_hz * k_v), "R_hz", out.r_hz)   # head above the tyre
+        if show("frame reactions"):
+            couple(FRAME, _add(hub, (-1.35, 0, 0)), ey, ez, 0.35, out.m_hx, t_ref, "M_hx", 0.4)   # behind the tyre, on the x axis
+            couple(FRAME, _add(hub, (0, 0, 1.25)), ex, ey, 0.3, out.m_hz, m_ref, "M_hz", 2.0)
+        if show("T_D" if t_net >= 0 else "T_B"):                         # the net torque takes the colour of its sign
+            couple(d.T_DRIVE if t_net >= 0 else d.T_BRAKE, hub, ez, ex, 0.7, t_net, t_ref, "T = T_D − T_B", 0.4)
+        if show("frame reactions"):
+            force(FRAME, hub, (out.r_hx * k_f, 0, 0), "R_hx", out.r_hx)                 # at H: its line passes through H
+            end = _mul(math.copysign(0.45, out.r_hy), ey)                 # the axle end it points away from
+            force(FRAME, _add(hub, end), (0, out.r_hy * k_f, 0), "R_hy", out.r_hy)
+            force(FRAME, _add(hub, (0, 0, 1.1 - out.r_hz * k_v)), (0, 0, out.r_hz * k_v), "R_hz", out.r_hz)   # head above the tyre
         # weight at H, downwards; drawn at least 0.4 units long, else it would be a few pixels (not to scale)
-        w_len = max(weight * k_v, 0.4)
-        self.arrow(surface, d.LOAD, hub, (0, 0, -w_len), 4)
-        w_tip = self.p(_add(hub, (0, 0, -w_len)))                       # name beside the tip, clear of H and of M_y
-        d.label(surface, f"{weight:.0f} N" if values else "m_w g", (w_tip[0] - 10, w_tip[1]), d.LOAD, 14, "mr",
-                backed=True)
+        if show("loads"):
+            w_len = max(weight * k_v, 0.4)
+            self.arrow(surface, d.LOAD, hub, (0, 0, -w_len), 4)
+            w_tip = self.p(_add(hub, (0, 0, -w_len)))                   # name beside the tip, clear of H and of M_y
+            d.label(surface, f"{weight:.0f} N" if values else "m_w g", (w_tip[0] - 10, w_tip[1]), d.LOAD, 14, "mr",
+                    backed=True)
         pygame.draw.circle(surface, d.TEXT, self.p(hub), 4)
         pygame.draw.circle(surface, d.TEXT, self.p(o), 4)
         d.label(surface, "H", (self.p(hub)[0] - 10, self.p(hub)[1] + 6), d.TEXT, 14, "tr", backed=True)
